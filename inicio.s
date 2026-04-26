@@ -37,6 +37,12 @@ _start:
     
     cmp w2, '1'
     b.eq llamar_ingreso
+
+    cmp w2, '2'
+    b.eq llamar_identidad
+
+    cmp w2, '3'
+    b.eq llamar_transpuesta
     
     cmp w2, '5'
     b.eq exit
@@ -45,6 +51,14 @@ _start:
 
 llamar_ingreso:
     bl ingreso_datos
+    b _start
+
+llamar_identidad:
+    bl matriz_identidad
+    b _start
+
+llamar_transpuesta:
+    bl matriz_transpuesta
     b _start
 
 exit:
