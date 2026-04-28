@@ -4,7 +4,7 @@ QEMU = qemu-aarch64
 LIBS = -L /usr/aarch64-linux-gnu/lib
 TARGET = inicio
 
-SRCS = inicio.s funciones/ingreso.s funciones/visualizar.s funciones/identidad.s funciones/transpuesta.s
+SRCS = inicio.s funciones/ingreso.s funciones/visualizar.s funciones/identidad.s funciones/transpuesta.s funciones/gauss.s funciones/gaussjordan.s
 
 OBJS = $(SRCS:.s=.o)
 

@@ -91,21 +91,44 @@ ciclo_columnas:
     svc 0
 
     // ------------------------------------------------
-    // GUARDAR EN MEMORIA (Lógica agregada)
+    // GUARDAR EN MEMORIA (Algoritmo ATOI para multiples digitos y negativos)
     // ------------------------------------------------
     ldr x1, =valor_celda
-    ldrb w10, [x1]      // Cargar el primer carácter ingresado
-    sub w10, w10, '0'   // Convertir de ASCII a número entero
+    mov w10, 0          // Acumulador numerico final
+    mov w11, 1          // Signo (1 = positivo, -1 = negativo)
 
-    // Calcular índice: (i * total_columnas) + j
-    mul w13, w6, w5     // w13 = i * w5
-    add w13, w13, w7    // w13 = w13 + j
+    // -- Verificar si el primer caracter es negativo --
+    ldrb w12, [x1]
+    cmp w12, '-'
+    b.ne loop_atoi      // Si no es negativo, ir directo a convertir
+    
+    mov w11, -1         // Es negativo, guardamos el signo
+    add x1, x1, 1       // Avanzamos 1 byte para saltarnos el guion '-'
 
-    // Guardar el número en el buffer 'matriz'
+loop_atoi:
+    ldrb w12, [x1], 1   // Leer caracter y avanzar puntero 1 byte
+    
+    cmp w12, '\n'       // Si detecta 'Enter', terminar
+    b.eq fin_atoi
+    cbz w12, fin_atoi   // Si detecta final de cadena (nulo), terminar
+    
+    // -- Convertir a numero y acumular --
+    sub w12, w12, '0'   // Convertir ASCII a numero real
+    mov w13, 10
+    mul w10, w10, w13   // Acumulador * 10
+    add w10, w10, w12   // Sumar el nuevo digito
+    
+    b loop_atoi         // Repetir para el siguiente caracter
+
+fin_atoi:
+    mul w10, w10, w11   // Multiplicar el acumulador por el signo (1 o -1)
+
+    // -- Calcular índice Row-Major y guardar --
+    mul w13, w6, w5     // w13 = i * w5 (columnas)
+    add w13, w13, w7    // w13 = w13 + j (columna actual)
+
     ldr x14, =matriz
-    // Se usa 'uxtw #2' para multiplicar el índice por 4 (cada entero ocupa 4 bytes)
-    str w10, [x14, w13, uxtw #2] 
-    // ------------------------------------------------
+    str w10, [x14, w13, uxtw #2] // Guardar entero de 4 bytes en memoria
 
     add w7, w7, 1
     b ciclo_columnas

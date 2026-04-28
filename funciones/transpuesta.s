@@ -5,7 +5,7 @@
     
     abre_cor:         .asciz "[ "
     cierra_cor:       .asciz "]\n      "
-    espacio:       .asciz "  "
+    espacio:          .asciz " "
     newline:          .asciz "\n"
 
 .section .text
@@ -68,14 +68,61 @@ loop_filas:
     ldr x14, =matriz       // Cargar la direccion del inicio de la matriz global
     ldr w15, [x14, w13, uxtw #2]     // Cargar el valor del inidice calculado
 
-    add w15, w15, '0'      // Convertir a string para su impresion
-    ldr x1, =espacio       // Cargar el string espacio
-    strb w15, [x1]         // Concatenar el valor de la matriz + espacio
+    sub sp, sp, 16          // Reservar 16 bytes en la pila
+    mov x9, sp              // Puntero para escribir digitos
+    mov w10, 0              // Contador de digitos
 
-    mov x8, 64             // Syscall 64 -> write
-    mov x0, 1              // File descriptor 1 -> stdout
-    mov x2, 2              // Longitud de la cadena
-    svc 0                  // Ejecuta la llamada al sistema
+    cmp w15, 0              // Verificar si el numero a escribir es negativo
+    b.ge no_neg_t           // Si el numero es >= 0 ir a no_neg_t
+
+    mov w11, '-'            // Guardar el signo '-'
+    strb w11, [sp, 15]      // Uso del byte 15 del buffer para imprimir
+
+    // -- Imprime el signo '-' --
+    mov x8, 64              // Syscall 64 -> write
+    mov x0, 1               // File descriptor 1 -> stdout
+    add x1, sp, 15          // Direccion del signo '-'
+    mov x2, 1               // Imprimir 1 byte
+    svc 0                   // Ejecuta llamada al sistema
+
+    neg w15, w15            // Vuelve el numero positivo para dividirlo
+
+no_neg_t:
+    mov w11, 10             // Divisor base 10
+
+loop_dividir_t:
+    udiv w12, w15, w11      // Calculo del cociente
+    msub w13, w12, w11, w15 // Calculo del residuo
+
+    add w13, w13, '0'       // Convertir entero a ASCII
+    strb w13, [x9], 1       // Guardar en el buffer y avanzar puntero
+    add w10, w10, 1         // Incrementar contador de digitos
+
+    mov w15, w12            // Actualizar el numero con el cociente
+    cbnz w15, loop_dividir_t// Si no es 0 seguir dividiendo
+
+loop_imprimir_digitos_t:
+    cbz w10, fin_itoa_t     // Si contador es 0, terminamos
+
+    sub x9, x9, 1           // Retroceder puntero al ultimo digito guardado
+    mov x8, 64              // Syscall 64 -> write
+    mov x0, 1               // File descriptor 1 -> stdout
+    mov x1, x9              // Dirección del dígito
+    mov x2, 1               // Imprimir 1 byte
+    svc 0                   // Ejecuta llamada al sistema
+
+    sub w10, w10, 1         // Decremento contador
+    b loop_imprimir_digitos_t // Regresar a la impresion
+
+fin_itoa_t:
+    add sp, sp, 16          // Restaurar el stack
+
+    // -- Imprimir un espacio separador --
+    mov x8, 64              // Syscall 64 -> write
+    mov x0, 1               // File descriptor 1 -> stdout
+    ldr x1, =espacio        // Cargar el string espacio
+    mov x2, 1               // Imprimir 1 byte
+    svc 0                   // Ejecuta llamada al sistema
 
     add w7, w7, 1          // Incremento del contador de filas
     b loop_filas           // Regresar a la impresion de filas
@@ -97,7 +144,7 @@ sig_fila:
 error_vacia:
     mov x8, 64              // Syscall 64 -> write
     mov x0, 1               // File descriptor 1 -> stdout
-    ldr x1, =msg_err_vacia  // Carga la dirección del mensaje -> Mensajde de que esta vacia
+    ldr x1, =msg_err_vacia  // Carga la dirección del mensaje -> Mensaje de que esta vacia
     mov x2, 56              // Longitud de la cadena
     svc 0                   // Ejecuta la llamada al sistema
     b salir_rutina          // Ir a la salida
@@ -115,3 +162,4 @@ salir_rutina:
     // -- Recuperamos los registros de la pila y restauramos el Stack Pointer --
     ldp x29, x30, [sp], 16  // Carga x29 y x30 sumando 16 bytes al sp
     ret                     // Regresa a inicio.s
+    
