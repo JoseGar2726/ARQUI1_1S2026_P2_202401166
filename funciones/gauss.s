@@ -5,16 +5,20 @@
     
     abre_cor:         .asciz "[ "
     cierra_cor:       .asciz "]\n      "
-    espacio:       .asciz "  "
+    espacio:          .asciz "  "
     newline:          .asciz "\n"
 
     msg_paso_ini:     .asciz "\n--- Paso "
     msg_paso_fin:     .asciz " ---\n"
+    
+    msg_pivote:       .asciz "Pivote: "
+    msg_fila:         .asciz "\nHaciendo 0 la fila: "
 
-// --- Espacio de memoria para trabajar sobre una copia de la matriz ---
+// --- Espacio de memoria ---
 .section .bss
+.align 3                        
     matriz_copia: .space 400
-    paso_buffer:  .space 4
+    itoa_buffer:  .space 16     
 
 .section .text
 .global matriz_gauss
@@ -24,7 +28,7 @@ matriz_gauss:
     // --- Manejo de link register y stack pointer ---
     stp x29, x30, [sp, -16]! // Guarda x29 y x30 restando 16 bytes al stack pointer
 
-    // --- Validar si ya se ingresó una matriz ---
+    // --- Validar si ya se ingreso una matriz ---
     // -- Lectura del valor de filas --
     ldr x1, =filas          // Carga el valor de las filas guardado en la memoria global
     ldrb w4, [x1]           // Lee el valor de las filas y lo guarda en w4
@@ -32,12 +36,11 @@ matriz_gauss:
     cmp w4, '0'             // Compara el valor con el caracter '0'
     b.eq error_vacia        // Si el valor es '0' tampoco hay matriz válida
 
-    // --- Lectura del valor de columnas ---
+    // -- Lectura del valor de columnas --
     ldr x1, =columnas       // Carga el valor de las columnas guardado en la memoria global
     ldrb w5, [x1]           // Lee el valor de las columnas y lo guarda en w5
 
-    // --- Preparar impresion de matriz transpuesta ---
-    // -- Imprimir encabezado --
+    // --- Preparar impresion de encabezado ---
     mov x8, 64              // Syscall 64 -> write
     mov x0, 1               // File descriptor 1 -> stdout
     ldr x1, =msg_header_id  // Carga la dirección del mensaje -> encabezado
@@ -46,274 +49,261 @@ matriz_gauss:
 
     // --- Valor entero de columnas y filas ---
     sub w4, w4, '0'         // Numero filas en entero 
-    sub w5, w5, '0'         // Numero columnas en entero
+    sub w5, w5, '0'         // Numero columnas en entero 
 
-    // --- Copiar la matriz ---
-    mul w18, w4, w5         // Calcular el total de elementos
-    mov w19, 0              // Contador para copiar elementos
+    // --- Realizar copia de seguridad de la matriz original ---
+    mul w18, w4, w5         // Calcular total de elementos (filas * columnas)
+    mov w19, 0              // Contador para el ciclo de copia
 
-// --- Funcion para copiar elementos ---
 loop_copiar:
-    cmp w19, w18            // Verificar si ya se copiaron todos los elementos
-    b.ge fin_copiar         // Si contador > elementos dejar de copiar elementos
+    cmp w19, w18            // Comparar contador con total de elementos
+    b.ge fin_copiar         // Si se copiaron todos, pasar a la siguiente fase
 
-    ldr x14, =matriz        // Cargar la direccion del inicio de la matriz global
-    ldr w20, [x14, w19, uxtw #2] // Acceso al indice de la matriz original
+    ldr x14, =matriz        // Cargar direccion de la matriz original
+    ldr w20, [x14, w19, uxtw #2] // Leer valor actual de la matriz original
 
-    ldr x15, =matriz_copia  // Cargar la direccion del inicio de la matriz copia
-    str w20, [x15, w19, uxtw #2] // Acceso al indice de la matriz copia
+    ldr x15, =matriz_copia  // Cargar direccion de la matriz de copia
+    str w20, [x15, w19, uxtw #2] // Guardar valor en la copia
 
-    add w19, w19, 1         // Autoincremento para el contador
-    b loop_copiar           // Regresar para seguir copiando la matriz
+    add w19, w19, 1         // Incrementar contador
+    b loop_copiar           // Repetir ciclo de copia
 
-// --- Empezar a aplicar Gauss ------------------------
+// --- Algoritmo de Gauss ---
 fin_copiar:
-    mov w21, 0              // w21 = k (Fila Pivote actual). Empieza en 0.
+    mov w21, 0              // w21 = k (Indice de fila pivote)
+    mov w20, 1              // w20 = Contador global para mostrar los pasos
 
 loop_pivote_k:
-    // El limite para el pivote 'k' es la penultima fila. 
-    // Si k+1 >= total de filas, significa que ya terminamos todo el metodo.
-    add w8, w21, 1          // w8 = k + 1
-    cmp w8, w4              // Compara (k + 1) con total de filas (w4)
-    b.ge fin_gauss_total    // Si ya no hay filas abajo, terminamos el algoritmo
+    add w8, w21, 1          // Calcular k + 1 para comparar
+    cmp w8, w4              // Hemos llegado a la ultima fila
+    b.ge fin_gauss_total    // Si k >= filas, el proceso ha terminado
 
-    // --- Cargar el PIVOTE PRINCIPAL: A[k][k] ---
-    // Indice = (k * columnas) + k
-    mul w13, w21, w5        
-    add w13, w13, w21       
-    ldr x15, =matriz_copia
-    ldr w16, [x15, w13, uxtw #2] // w16 = Valor de A[k][k]
+    // -- Obtener Pivote A[k][k] --
+    mul w13, w21, w5        // fila * total_columnas
+    add w13, w13, w21       // + columna_pivote
+    ldr x15, =matriz_copia  // Cargar base de la matriz de trabajo
+    ldr w16, [x15, w13, uxtw #2] // Cargar valor del Pivote
 
-    // Si el pivote es 0, idealmente hay que intercambiar filas. 
-    // Por ahora, para que el programa no colapse, simplemente saltamos esta iteracion.
-    cbz w16, sig_pivote_k   
+    cbz w16, sig_pivote_k   // Si el pivote es 0, saltar a la siguiente fila
 
-    mov w22, w8             // w22 = i (Fila Objetivo a modificar). Empieza en k + 1.
+    mov w22, w8             // w22 = i (Indice de fila objetivo, empieza en k+1)
 
 loop_filas_i:
-    cmp w22, w4             // Comparar i con total de filas
-    b.ge sig_pivote_k       // Si ya limpiamos todas las filas debajo del pivote, pasamos al siguiente pivote
+    cmp w22, w4             // Hemos procesado todas las filas debajo del pivote
+    b.ge sig_pivote_k       // Si i >= filas, pasar al siguiente pivote k
 
-    // --- Cargar el OBJETIVO a eliminar: A[i][k] ---
-    // Indice = (i * columnas) + k
-    mul w13, w22, w5        
-    add w13, w13, w21       
-    ldr w17, [x15, w13, uxtw #2] // w17 = Valor de A[i][k]
+    ldr x15, =matriz_copia  // Recargar direccion base de la matriz
 
-    mov w23, 0              // w23 = j (Contador de columnas). Empieza en 0.
+    // -- Obtener Valor Objetivo A[i][k] --
+    mul w13, w22, w5        // fila_i * total_columnas
+    add w13, w13, w21       // + columna_k
+    ldr w17, [x15, w13, uxtw #2] // Cargar valor a eliminar (Objetivo)
 
-// --- Ciclo interno para aplicar formula en toda la fila ---
+    mov w23, 0              // w23 = j (Contador de columnas para la operacion de fila)
+
 loop_columnas_j:
-    cmp w23, w5             // Comparar j con total de columnas
-    b.ge sig_fila_i         // Si ya actualizamos toda la fila, pasamos a la siguiente fila objetivo
+    cmp w23, w5             // Se han procesado todas las columnas de la fila
+    b.ge sig_fila_i         // Si j >= columnas, pasar a imprimir el paso
 
-    // --- Leer A[i][j] (Elemento de la Fila a modificar) ---
-    mul w13, w22, w5        // i * columnas
-    add w13, w13, w23       // + j
-    ldr w24, [x15, w13, uxtw #2]
+    ldr x15, =matriz_copia  // Recargar direccion base de la matriz
 
-    // --- Leer A[k][j] (Elemento de la Fila pivote) ---
-    mul w14, w21, w5        // k * columnas
-    add w14, w14, w23       // + j
-    ldr w25, [x15, w14, uxtw #2]
+    // -- Obtener A[i][j] --
+    mul w13, w22, w5        
+    add w13, w13, w23       
+    ldr w24, [x15, w13, uxtw #2] // Cargar elemento de la fila objetivo
 
-    // --- Aplicacion de la formula cruzada ---
-    // Fila_Objetivo = (Pivote * A[i][j]) - (Objetivo * A[k][j])
-    mul w26, w16, w24       // w26 = Pivote * A[i][j]
-    mul w27, w17, w25       // w27 = Objetivo * A[k][j]
-    sub w28, w26, w27       // w28 = Resultado Final
+    // -- Obtener A[k][j] --
+    mul w14, w21, w5        
+    add w14, w14, w23       
+    ldr w25, [x15, w14, uxtw #2] // Cargar elemento de la fila pivote
 
-    // --- Guardar el valor nuevo en la copia ---
-    str w28, [x15, w13, uxtw #2]
+    // -- Operacion Gauss: A[i][j] = (Pivote * A[i][j]) - (Objetivo * A[k][j]) --
+    mul w26, w16, w24       // Pivote * A[i][j]
+    mul w27, w17, w25       // Objetivo * A[k][j]
+    sub w28, w26, w27       // Resta de productos
+
+    str w28, [x15, w13, uxtw #2] // Guardar resultado en la matriz de copia
 
     add w23, w23, 1         // j++
-    b loop_columnas_j       // Repetir el proceso para las siguientes columnas
+    b loop_columnas_j       // Siguiente columna
 
-// --- Controles de avance de los ciclos ---
+// --- Impresion detallada de los pasos ---
 sig_fila_i:
-    add w22, w22, 1         // i++ (Avanzar a la siguiente fila debajo del pivote)
-    b loop_filas_i
-
-sig_pivote_k:
-    // ---------------------------------------------------------
-    // 1. Imprimir "\n--- Paso "
+    // -- Imprimir encabezado de paso --
     mov x8, 64
     mov x0, 1
     ldr x1, =msg_paso_ini
     mov x2, 10
     svc 0
-
-    // 2. Calcular número de paso actual (k + 1)
-    add w9, w21, 1
-
-    // 3. Mini-ITOA: Convertir número a ASCII mediante restas sucesivas
-    mov w10, 0              // w10 = contador de decenas
-resta_diez_paso:
-    cmp w9, 10
-    b.lt fin_resta_paso
-    sub w9, w9, 10
-    add w10, w10, 1
-    b resta_diez_paso
-
-fin_resta_paso:
-    ldr x1, =paso_buffer
-    mov w11, 0              // w11 = longitud del texto
-    
-    cbz w10, paso_unidades  // Si las decenas son 0, saltar a unidades
-    add w10, w10, '0'       // Convertir decena a ASCII
-    strb w10, [x1, w11, uxtw]
-    add w11, w11, 1         // longitud++
-    
-paso_unidades:
-    add w9, w9, '0'         // Convertir unidad a ASCII
-    strb w9, [x1, w11, uxtw]
-    add w11, w11, 1         // longitud++
-    
-    // 4. Imprimir el número ya convertido
-    mov x8, 64
-    mov x0, 1
-    ldr x1, =paso_buffer
-    mov x2, x11             // Pasamos la longitud en x11 a x2
-    svc 0
-
-    // 5. Imprimir " ---\n"
+    mov w15, w20            // Pasar contador de pasos a ITOA
+    bl itoa_imprimir
     mov x8, 64
     mov x0, 1
     ldr x1, =msg_paso_fin
     mov x2, 5
     svc 0
-    // ---------------------------------------------------------
 
-    // Imprimir el estado de la matriz en este paso
-    bl imprimir_copia       
+    // -- Imprimir valor del pivote usado --
+    mov x8, 64
+    mov x0, 1
+    ldr x1, =msg_pivote
+    mov x2, 8
+    svc 0
+    mov w15, w16            // Pasar valor del pivote a ITOA
+    bl itoa_imprimir
+
+    // -- Imprimir cual fila se esta modificando --
+    mov x8, 64
+    mov x0, 1
+    ldr x1, =msg_fila
+    mov x2, 20
+    svc 0
+    mov w15, w22            // Pasar indice de fila a ITOA
+    bl itoa_imprimir
     
-    // Imprimir un salto de linea extra
+    // -- Salto de linea antes de mostrar la matriz --
     mov x8, 64
     mov x0, 1
     ldr x1, =newline
     mov x2, 1
     svc 0
 
-    add w21, w21, 1         
-    b loop_pivote_k
-
-fin_gauss_total:
-    b fin_gauss
-
-// --- Funcion para imprimir el paso a paso ---
-imprimir_copia:
-    stp x29, x30, [sp, -16]!        
-
-    mov w6, 0                       
-
-loop_print_f:
-    cmp w6, w4                      
-    b.ge fin_print_copia            
-
-    mov x8, 64                      
-    mov x0, 1                       
-    ldr x1, =abre_cor               
-    mov x2, 2                       
-    svc 0                           
-
-    mov w7, 0                       
-
-loop_print_c:
-    cmp w7, w5                      
-    b.ge sig_print_fila             
-
-    mul w13, w6, w5                 
-    add w13, w13, w7                
-    ldr x14, =matriz_copia          
-    ldr w15, [x14, w13, uxtw #2]    
-
-    sub sp, sp, 16
-    mov x9, sp                      
-    mov w10, 0                      
-
-    cmp w15, 0                      
-    b.ge no_negativo                
-
-    mov w11, '-'                    
-    strb w11, [sp, 15]              
-
+    bl imprimir_copia       // Llamar a rutina para mostrar estado actual de la matriz
+    
     mov x8, 64
     mov x0, 1
-    add x1, sp, 15          
+    ldr x1, =newline
     mov x2, 1
     svc 0
 
-    neg w15, w15                     
-    
-no_negativo:
-    mov w11, 10                      
+    add w20, w20, 1         // Incrementar contador de pasos
+    add w22, w22, 1         // i++ (Siguiente fila objetivo)
+    b loop_filas_i          // Repetir para la siguiente fila
 
-loop_dividir:
-    udiv w12, w15, w11               
-    msub w13, w12, w11, w15          
+sig_pivote_k:
+    add w21, w21, 1         // k++ (Siguiente elemento de la diagonal)
+    b loop_pivote_k         // Repetir ciclo principal
 
-    add w13, w13, '0'                
-    strb w13, [x9], 1                
-    add w10, w10, 1                  
+fin_gauss_total:
+    b fin_gauss             // Ir a finalizacion
 
-    mov w15, w12                     
-    cbnz w15, loop_dividir           
+// --- Funcion para imprimir la matriz de trabajo ---
+imprimir_copia:
+    stp x29, x30, [sp, -16]! // Preservar registros de enlace
 
-loop_imprimir_digitos:
-    cbz w10, fin_itoa       
+    mov w6, 0               // Contador de filas para impresion
 
-    sub x9, x9, 1           
+loop_print_f:
+    cmp w6, w4              // Comparar con total de filas
+    b.ge fin_print_copia    // Si termino filas, salir
+
+    // -- Imprimir apertura de corchete --
     mov x8, 64
     mov x0, 1
-    mov x1, x9              
-    mov x2, 1               
+    ldr x1, =abre_cor
+    mov x2, 2
     svc 0
 
-    sub w10, w10, 1         
-    b loop_imprimir_digitos 
+    mov w7, 0               // Contador de columnas para impresion
 
-fin_itoa:
-    add sp, sp, 16          
+loop_print_c:
+    cmp w7, w5              // Comparar con total de columnas
+    b.ge sig_print_fila     // Si termino columnas, pasar a cerrar corchete
 
+    // -- Cargar valor de la celda --
+    mul w13, w6, w5         
+    add w13, w13, w7        
+    ldr x14, =matriz_copia  
+    ldr w15, [x14, w13, uxtw #2] 
+
+    bl itoa_imprimir        // Convertir valor a texto y mostrar
+
+    // -- Imprimir espacio entre numeros --
     mov x8, 64
     mov x0, 1
     ldr x1, =espacio
-    mov x2, 1
+    mov x2, 2
     svc 0
 
-    add w7, w7, 1          
-    b loop_print_c         
+    add w7, w7, 1           // j++
+    b loop_print_c          
 
 sig_print_fila:
+    // -- Imprimir cierre de corchete --
     mov x8, 64
     mov x0, 1
     ldr x1, =cierra_cor
     mov x2, 8
     svc 0
 
-    add w6, w6, 1          
-    b loop_print_f         
+    add w6, w6, 1           // i++
+    b loop_print_f          
 
 fin_print_copia:
-    ldp x29, x30, [sp], 16  
-    ret                      
+    ldp x29, x30, [sp], 16  // Restaurar registros
+    ret                     // Regresar de la funcion
+
+// --- SUBRUTINA ITOA ---
+itoa_imprimir:
+    stp x29, x30, [sp, -16]!
+    
+    ldr x9, =itoa_buffer    // Cargar puntero de buffer temporal
+    mov w10, 0              // Contador de digitos
+    
+    // -- Gestion de numeros negativos --
+    cmp w15, 0              // Comparar numero con 0
+    b.ge itoa_no_neg        // Si es positivo, saltar signo
+    
+    mov w11, '-'            // Cargar signo menos
+    strb w11, [x9]          // Guardar en buffer
+    mov x8, 64              // Imprimir signo inmediatamente
+    mov x0, 1
+    mov x1, x9              
+    mov x2, 1
+    svc 0
+    neg w15, w15            // Volver numero positivo para procesar digitos
+    
+itoa_no_neg:
+    mov w11, 10             // Base decimal
+    ldr x9, =itoa_buffer    
+itoa_div:
+    udiv w12, w15, w11      // w12 = cociente
+    msub w13, w12, w11, w15 // w13 = residuo (digito)
+    add w13, w13, '0'       // Convertir a ASCII
+    strb w13, [x9], 1       // Guardar y avanzar
+    add w10, w10, 1         // Incrementar contador
+    mov w15, w12            // Continuar con el cociente
+    cbnz w15, itoa_div      // Mientras el cociente no sea 0
+itoa_print:
+    cbz w10, itoa_fin       // Si no quedan digitos, salir
+    sub x9, x9, 1           // Retroceder puntero al digito
+    mov x8, 64              // Imprimir digito individual
+    mov x0, 1
+    mov x1, x9              
+    mov x2, 1
+    svc 0
+    sub w10, w10, 1         // Decrementar contador
+    b itoa_print
+itoa_fin:
+    ldp x29, x30, [sp], 16  // Restaurar enlace
+    ret
 
 // --- Manejo de errores y salida ---
 error_vacia:
-    mov x8, 64              
-    mov x0, 1               
+    mov x8, 64              // Imprimir mensaje de error si no hay datos
+    mov x0, 1
     ldr x1, =msg_err_vacia  
     mov x2, 56              
     svc 0                   
     b salir_rutina          
 
 fin_gauss:
-    mov x8, 64              
-    mov x0, 1               
+    mov x8, 64              // Imprimir salto de linea final
+    mov x0, 1
     ldr x1, =newline        
     mov x2, 1               
     svc 0                   
 
 salir_rutina:
-    ldp x29, x30, [sp], 16  
-    ret
+    ldp x29, x30, [sp], 16  // Recuperar registros y restaurar pila
+    ret                     // Regresar al menu principal

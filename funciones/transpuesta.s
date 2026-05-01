@@ -16,7 +16,7 @@ matriz_transpuesta:
     // --- Manejo de link register y stack pointer ---
     stp x29, x30, [sp, -16]! // Guarda x29 y x30 restando 16 bytes al stack pointer
 
-    // --- Validar si ya se ingresó una matriz ---
+    // --- Validar si ya se ingreso una matriz ---
     // -- Lectura del valor de filas --
     ldr x1, =filas          // Carga el valor de las filas guardado en la memoria global
     ldrb w4, [x1]           // Lee el valor de las filas y lo guarda en w4

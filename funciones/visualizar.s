@@ -1,7 +1,8 @@
+// --- Mensajes del Menu Principal ---
 .section .data
     header:      .asciz "\nmatriz guardada:\nA = "
     abre_cor:    .asciz "[ "
-    cierra_cor:  .asciz "]\n    " // Espacio para alinear filas debajo de 'A = '
+    cierra_cor:  .asciz "]\n    "
     espacio:     .asciz " "
     newline:     .asciz "\n"
 
@@ -9,75 +10,75 @@
 .global imprimir_matriz
 
 imprimir_matriz:
-    // Guardar registros de enlace
+    // --- Manejo de link register y stack pointer ---
     stp x29, x30, [sp, -16]!
 
     // Verificar si hay datos
     ldr x1, =filas
-    ldrb w4, [x1]
-    sub w4, w4, '0'         
+    ldrb w4, [x1]             // Guarda filas en w4
+    sub w4, w4, '0'           // Verifica si hay filas, en caso de que no hayan fin de visualizacion
     cbz w4, fin_visualizar  
 
+
     ldr x1, =columnas
-    ldrb w5, [x1]
+    ldrb w5, [x1]             // Guarda columnas en w5
     sub w5, w5, '0'         
 
-    // 1. Imprimir encabezado
+    // Imprimir encabezado
     mov x8, 64
     mov x0, 1
     ldr x1, =header
     mov x2, 22
     svc 0
 
-    mov w6, 0               // i = 0 
+    mov w6, 0                  // Contador de filas
 
 loop_filas:
-    cmp w6, w4
+    cmp w6, w4                 // Verificar si ya se imprimieron todas las filas
     b.ge fin_matriz
 
-    // 2. Imprimir "[ "
+    // Imprimir "[ "
     mov x8, 64
     mov x0, 1
     ldr x1, =abre_cor
     mov x2, 2
     svc 0
 
-    mov w7, 0               // j = 0 
+    mov w7, 0                   // Contador para columnas
 
 loop_columnas:
     cmp w7, w5
-    b.ge sig_fila
+    b.ge sig_fila               // Vericar si ya se imprimieron todas las columnas y avanzar a la siguiente filas
 
-    // 3. Calcular dirección en memoria
+    // Calcular dirección en memoria para el indice a imprimir
     mul w13, w6, w5         
     add w13, w13, w7        
     ldr x14, =matriz
     ldr w15, [x14, w13, uxtw #2] 
 
-    // ------------------------------------------------
-    // 4. ALGORITMO ITOA (Soporta >9 y negativos)
-    // ------------------------------------------------
-    sub sp, sp, 16          // Reservar 16 bytes en la pila
-    mov x9, sp              // Puntero temporal
-    mov w10, 0              // Contador de digitos
+    // -- Escritura --
+    sub sp, sp, 16              // Reservar 16 bytes en la pila
+    mov x9, sp                  // Puntero temporal
+    mov w10, 0                  // Contador de digitos
 
     // -- Verificar si es negativo --
     cmp w15, 0
     b.ge no_negativo
 
-    mov w11, '-'
+    mov w11, '-'            
     strb w11, [sp, 15]
     
-    mov x8, 64
+    mov x8, 64              
     mov x0, 1
     add x1, sp, 15          
     mov x2, 1
-    svc 0                   // Imprime '-'
+    svc 0                       // Imprime '-'
 
-    neg w15, w15            // Vuelve el numero positivo
+    neg w15, w15                // Vuelve el numero positivo
 
 no_negativo:
     mov w11, 10
+
 loop_dividir:
     udiv w12, w15, w11      
     msub w13, w12, w11, w15 
@@ -97,13 +98,13 @@ loop_imprimir_digitos:
     mov x0, 1
     mov x1, x9              
     mov x2, 1               
-    svc 0                   // Imprime digito
+    svc 0                       // Imprime digito
 
     sub w10, w10, 1
     b loop_imprimir_digitos
 
 fin_itoa:
-    add sp, sp, 16          // Restaurar la pila
+    add sp, sp, 16              // Restaurar la pila
 
     // Imprimir el espacio separador
     mov x8, 64
@@ -111,13 +112,12 @@ fin_itoa:
     ldr x1, =espacio
     mov x2, 1               
     svc 0
-    // ------------------------------------------------
 
     add w7, w7, 1
     b loop_columnas
 
 sig_fila:
-    // 5. Imprimir "]\n"
+    // Imprimir "]\n"
     mov x8, 64
     mov x0, 1
     ldr x1, =cierra_cor
@@ -128,6 +128,7 @@ sig_fila:
     b loop_filas
 
 fin_matriz:
+    // Imprimir salto de linea
     mov x8, 64
     mov x0, 1
     ldr x1, =newline
@@ -135,5 +136,6 @@ fin_matriz:
     svc 0
 
 fin_visualizar:
+    // --- Manejo de link register y stack pointer ---
     ldp x29, x30, [sp], 16
     ret
