@@ -25,7 +25,7 @@
 matriz_suma:
     stp x29, x30, [sp, -16]!      // Preservar registros de enlace y marco
 
-    // --- 1. VALIDAR DATOS DE MATRIZ A ---
+    // --- VALIDAR DATOS DE MATRIZ A ---
     ldr x1, =filas
     ldrb w4, [x1]
     cbz w4, error_vacia           // Salta si no hay datos en filas
